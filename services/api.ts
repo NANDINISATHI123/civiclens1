@@ -1,317 +1,400 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type } from '@google/genai';
 import { supabase } from '../supabase/client';
-// FIX: Added .ts extension to fix module resolution error.
-import { Report, User, UserRole, Worker, ReportStatus, StatusUpdate, ReportCategory } from '../types.ts';
+import { ReportStatus, UserRole } from '../types';
 
-// FIX: Initialize the Gemini AI client as per the guidelines.
+// Per guidelines, initialize with API_KEY from environment.
+// It will be injected by Netlify on deployment or provided by dev-config.js locally.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// --- AUTH ---
-export const loginUser = async (email: string, password: string): Promise<User | null> => {
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
-  if (authError || !authData.user) {
-    console.error('Login error:', authError?.message);
+// --- Helper Functions ---
+export const sanitizeText = (text: string | null | undefined): string => {
+    if (!text) return '';
+    // Aggressive sanitization: Completely remove characters known to cause issues
+    // with database triggers. This is the most robust client-side fix.
+    return text.replace(/['"`\\]/g, "");
+};
+
+
+// --- User Authentication ---
+
+export const loginUser = async (email, password) => {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(error.message);
+  if (!data.user) throw new Error('Login failed: no user data returned.');
+
+  // Fetch role from the users table
+  const { data: userData, error: userError } = await supabase
+    .from('users')
+    .select('role, name')
+    .eq('id', data.user.id)
+    .single();
+  
+  if (userError) throw new Error(userError.message);
+
+  return { ...data.user, ...userData };
+};
+
+export const registerUser = async ({ name, email, password }) => {
+  const sanitizedName = sanitizeText(name);
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        name: sanitizedName,
+      }
+    }
+  });
+  if (error) throw new Error(error.message);
+  if (!data.user) throw new Error('Registration failed: no user data returned.');
+
+  // Insert into our public users table
+  const { error: insertError } = await supabase
+    .from('users')
+    .insert([{ id: data.user.id, name: sanitizedName, email, role: UserRole.Citizen }]);
+  
+  if (insertError) {
+    console.error("Error inserting into public.users:", insertError);
+    throw new Error(insertError.message);
+  }
+
+  return data.user;
+};
+
+export const logoutUser = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(error.message);
+};
+
+export const getCurrentUser = async () => {
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  if (!session?.user) return null;
+
+  const { data: userData, error: userError } = await supabase
+    .from('users')
+    .select('role, name')
+    .eq('id', session.user.id)
+    .single();
+
+  if (userError) {
+    console.warn('Could not fetch user profile:', userError.message);
+    await logoutUser();
     return null;
   }
-  const { data: userData, error: userError } = await supabase.from('users').select('*').eq('id', authData.user.id).single();
-  if (userError || !userData) {
-    console.error('Error fetching user profile:', userError?.message);
-    // Maybe sign out the user if profile doesn't exist
-    await supabase.auth.signOut();
-    return null;
+  
+  return { ...session.user, ...userData };
+};
+
+
+// --- Reports ---
+
+export const getReports = async (userId = null) => {
+  let query = supabase.from('reports').select('*').order('created_at', { ascending: false });
+  if (userId) {
+    query = query.eq('submitted_by', userId);
   }
-  return { id: userData.id, name: userData.name, email: userData.email, role: userData.role };
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return data || [];
 };
 
-export const registerUser = async (newUser: Pick<User, 'name' | 'email'> & { password: string }): Promise<User | null> => {
-    const { data, error } = await supabase.auth.signUp({
-        email: newUser.email,
-        password: newUser.password,
-        options: {
-            data: {
-                name: newUser.name,
-            }
-        }
-    });
-    if (error) {
-        console.error('Registration error:', error.message);
-        return null;
+const uploadReportImage = async (base64Data, fileName) => {
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
-    // Note: Supabase inserts into auth.users, a trigger/function should copy to public.users
-    return data.user ? { id: data.user.id, name: newUser.name, email: newUser.email, role: UserRole.Citizen } : null;
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray]);
+    
+    const sanitizedFileName = (fileName || 'image.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `reports/${Date.now()}-${sanitizedFileName}`;
+    const { error: uploadError } = await supabase.storage.from('report-images').upload(filePath, blob);
+    if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}`);
+    
+    const { data } = supabase.storage.from('report-images').getPublicUrl(filePath);
+    return data.publicUrl;
 };
 
-// --- REPORTS ---
-export const getReports = async (): Promise<Report[]> => {
-    const { data, error } = await supabase.from('reports').select('*').order('created_at', { ascending: false });
-    if (error) {
-        console.error('Error fetching reports:', error);
-        return [];
-    }
-    return data as Report[];
-};
-
-export const submitReport = async (reportData: Omit<Report, 'id' | 'created_at' | 'submitted_by_name' | 'status_history' | 'vote_count'> & { timestamp?: number }): Promise<Report | null> => {
+export const submitReport = async (reportData) => {
     let imageUrl = null;
-    if (reportData.image_data) {
-        const fileExt = reportData.image_url?.split('.').pop() || 'png';
-        const fileName = `report_${Date.now()}.${fileExt}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('report-images').upload(fileName, Buffer.from(reportData.image_data, 'base64'), {
-            contentType: `image/${fileExt}`,
-            upsert: false,
-        });
-
-        if (uploadError) {
-            console.error('Image upload error:', uploadError);
-            throw new Error('Image upload failed');
+    if (reportData.image_data && reportData.image_url) {
+        try {
+            imageUrl = await uploadReportImage(reportData.image_data, reportData.image_url);
+        } catch(err) {
+            console.error(err);
+            throw err;
         }
-        const { data: urlData } = supabase.storage.from('report-images').getPublicUrl(uploadData.path);
-        imageUrl = urlData.publicUrl;
+    }
+    
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("You must be logged in to submit a report.");
+    
+    const submittedByName = reportData.submitted_by_name?.trim() || user.email;
+    if (!submittedByName) {
+      throw new Error("Could not determine the submitter's name or email.");
     }
 
     const newReport = {
-        title: reportData.title,
-        description: reportData.description,
-        location: reportData.location,
+        title: sanitizeText(reportData.title),
+        description: sanitizeText(reportData.description),
         category: reportData.category,
+        location: reportData.location,
         image_url: imageUrl,
-        submitted_by: reportData.submitted_by,
+        submitted_by: user.id,
+        submitted_by_name: sanitizeText(submittedByName),
         status: ReportStatus.Pending,
+        status_history: [{ status: ReportStatus.Pending, timestamp: new Date().toISOString(), notes: null }],
+        vote_count: 0,
     };
-
+    
     const { data, error } = await supabase.from('reports').insert([newReport]).select().single();
     if (error) {
-        console.error('Error submitting report:', error);
-        return null;
+        console.error("Supabase insert error (full object):", error);
+        throw new Error(`Database Error: ${error.message}.`);
     }
-    return data as Report;
+    return data;
 };
 
-export const updateReportStatus = async (reportId: number, status: ReportStatus, assignedTo?: number, note?: string): Promise<Report | null> => {
-    const updatePayload: any = { status };
-    if (status === ReportStatus.Assigned && assignedTo) {
-        updatePayload.assigned_to = assignedTo;
-    }
+export const updateReportStatus = async (reportId, status, assignedTo, notes) => {
+    const { data: existingReport, error: fetchError } = await supabase
+        .from('reports')
+        .select('status_history')
+        .eq('id', reportId)
+        .single();
+    if (fetchError) throw new Error(fetchError.message);
 
-    const { data: existingReport, error: fetchError } = await supabase.from('reports').select('status_history').eq('id', reportId).single();
-    if (fetchError) {
-        console.error('Error fetching existing report for update:', fetchError);
-        return null;
-    }
-
-    const newStatusUpdate: StatusUpdate = { status, timestamp: new Date(), notes: note };
-    const newHistory = [...(existingReport.status_history || []), newStatusUpdate];
-    updatePayload.status_history = newHistory;
-
-    const { data, error } = await supabase.from('reports').update(updatePayload).eq('id', reportId).select().single();
-    if (error) {
-        console.error('Error updating status:', error);
-        return null;
-    }
-    return data as Report;
-};
-
-export const addNoteToReport = async (reportId: number, note: string): Promise<Report | null> => {
-    const { data: existingReport, error: fetchError } = await supabase.from('reports').select('status, status_history').eq('id', reportId).single();
-    if (fetchError) {
-        console.error('Error fetching existing report for note:', fetchError);
-        return null;
-    }
-
-    const newStatusUpdate: StatusUpdate = { status: existingReport.status, timestamp: new Date(), notes: note };
-    const newHistory = [...(existingReport.status_history || []), newStatusUpdate];
-
-    const { data, error } = await supabase.from('reports').update({ status_history: newHistory }).eq('id', reportId).select().single();
-    if (error) {
-        console.error('Error adding note:', error);
-        return null;
-    }
-    return data as Report;
-};
-
-// --- VOTES ---
-export const addVote = async (reportId: number, userId: string) => {
-    const { error } = await supabase.from('votes').insert([{ report_id: reportId, user_id: userId }]);
-    return { success: !error };
-};
-export const removeVote = async (reportId: number, userId: string) => {
-    const { error } = await supabase.from('votes').delete().match({ report_id: reportId, user_id: userId });
-    return { success: !error };
-};
-export const getMyVotesForReports = async (reportIds: number[], userId: string): Promise<Map<number, boolean>> => {
-    const { data, error } = await supabase.from('votes').select('report_id').eq('user_id', userId).in('report_id', reportIds);
-    const voteMap = new Map<number, boolean>();
-    if (data && !error) {
-        data.forEach(vote => voteMap.set(vote.report_id, true));
-    }
-    return voteMap;
-};
-
-// --- WORKERS & USERS ---
-export const getWorkers = async (): Promise<Worker[]> => {
-    const { data, error } = await supabase.from('workers').select('*');
-    return error ? [] : data;
-};
-export const addWorker = async (worker: Omit<Worker, 'id'>) => {
-    await supabase.from('workers').insert([worker]);
-};
-export const getUsers = async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('users').select('*');
-    return error ? [] : (data as User[]);
-};
-
-// --- MISC ---
-export const addContactMessage = async (message: { name: string, email: string, message: string }) => {
-    await supabase.from('contact_messages').insert([message]);
-};
-export const addFeedback = async (feedback: any) => {
-    await supabase.from('feedback').insert([feedback]);
-};
-
-
-// --- GEMINI AI FUNCTIONS ---
-
-export const getAIReportAnalysis = async (reports: Report[]): Promise<string> => {
-    if (reports.length === 0) return "No reports to analyze.";
-    const prompt = `
-        Analyze the following list of civic issue reports and provide a concise summary.
-        The summary should identify urgent issues, common themes or categories, and suggest potential areas for resource allocation.
-        Format the output with Markdown. Use headings for "Urgent Issues", "Common Themes", and "Recommendations". Use bullet points within each section.
-
-        Reports:
-        ${reports.map(r => `- ID ${r.id}: ${r.title} (Category: ${r.category}, Status: ${r.status}, Location: ${r.location})`).join('\n')}
-    `;
-    try {
-        // FIX: Use ai.models.generateContent as per guidelines
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text;
-    } catch (error) {
-        console.error("Gemini API error (getAIReportAnalysis):", error);
-        throw new Error("Failed to get AI analysis.");
-    }
-};
-
-export const findSimilarReports = async (report: Report): Promise<Report[]> => {
-    // In a real app, this might be a more sophisticated vector search.
-    // Here, we'll fetch recent, non-resolved reports and let the AI decide.
-    const { data, error } = await supabase.from('reports').select('*').neq('status', ReportStatus.Resolved).neq('id', report.id).limit(50);
-    if (error || !data || data.length === 0) return [];
+    const newHistoryEntry = { status, timestamp: new Date().toISOString(), notes: sanitizeText(notes) };
+    const updatedHistory = [...(existingReport.status_history || []), newHistoryEntry];
     
-    const prompt = `
-      From the following list of existing reports, identify up to 3 reports that are most similar to the "New Report".
-      Consider the title, description, and category.
-      Respond ONLY with a JSON array of the IDs of the similar reports, like [101, 204, 315]. If none are similar, respond with an empty array [].
+    const updateData: {
+        status: string;
+        status_history: any[];
+        assigned_to?: number | null;
+    } = {
+        status,
+        status_history: updatedHistory,
+    };
 
-      New Report:
-      - Title: "${report.title}"
-      - Description: "${report.description}"
-      - Category: ${report.category}
+    if (assignedTo !== undefined) {
+        updateData.assigned_to = assignedTo;
+    }
 
-      Existing Reports:
-      ${data.map(r => `{"id": ${r.id}, "title": "${r.title}", "description": "${r.description}", "category": "${r.category}"}`).join('\n')}
-    `;
+    const { data, error } = await supabase
+        .from('reports')
+        .update(updateData)
+        .eq('id', reportId)
+        .select()
+        .single();
+        
+    if (error) throw new Error(error.message);
+    return data;
+};
+
+// --- Gemini API Functions ---
+
+export const getETR = async ({ title, description, category, location }) => {
+  const prompt = `Based on the following civic issue report, provide a concise estimated time to resolution (ETR) like "1-2 days", "3-5 business days", or "Approximately 1 week". Do not add any extra commentary.
+    Report Details:
+    - Title: ${title}
+    - Description: ${description}
+    - Category: ${category}
+    - Location: ${location}
+    Estimated Time to Resolution:`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text.trim();
+  } catch (err) {
+    console.error("Gemini ETR error:", err);
+    throw new Error("Failed to get an ETR from AI.");
+  }
+};
+
+export const getAIReportAnalysis = async (reports) => {
+  if (!reports || reports.length === 0) return "No reports available to analyze.";
+  
+  const reportsSummary = reports.map(r => 
+    `- Title: ${r.title}\n  Category: ${r.category}\n  Status: ${r.status}\n  Location: ${r.location}\n  Upvotes: ${r.vote_count || 0}`
+  ).join('\n');
+  
+  const prompt = `You are an AI assistant for a city's public works department. Analyze the following list of active civic issue reports. Provide a concise, well-formatted summary that includes:
+    1.  **Overall Summary:** A brief overview of the current situation (e.g., number of reports, common categories).
+    2.  **Key Hotspots:** Identify any geographical areas or specific types of issues that are recurring.
+    3.  **Prioritization Suggestions:** Suggest 1-3 reports that might need immediate attention based on category (e.g., safety issues like damaged signs), number of upvotes, or clustering.
+    Use markdown for formatting (e.g., **bold headings**, *italics*, and lists).
+    Current Reports:\n${reportsSummary}`;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text;
+  } catch (err) {
+    console.error("Gemini analysis error:", err);
+    throw new Error("Failed to get AI analysis.");
+  }
+};
+
+export const geocodeAddressWithGemini = async (address) => {
+    const prompt = `Provide the latitude and longitude for the following address: "${address}".`;
+    
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        const similarIds = JSON.parse(response.text.trim());
-        return data.filter(r => similarIds.includes(r.id));
-    } catch (e) {
-        console.error("Gemini API error (findSimilarReports):", e);
-        return [];
-    }
-};
-
-export const getETR = async (report: Pick<Report, 'title' | 'description' | 'location' | 'category'>): Promise<string> => {
-    const prompt = `
-        Based on the following civic issue report, provide an estimated time to resolution (ETR).
-        Consider factors like the category of the issue and potential complexity.
-        Provide a concise estimate like "1-3 business days", "5-7 business days", or "Requires further assessment".
-        Do not add any extra explanation.
-
-        Report Details:
-        - Category: ${report.category}
-        - Title: ${report.title}
-        - Description: ${report.description}
-        - Location: ${report.location}
-    `;
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text.trim();
-    } catch (error) {
-        console.error("Gemini API error (getETR):", error);
-        return "Could not be estimated.";
-    }
-};
-
-export const geocodeAddressWithGemini = async (address: string): Promise<{ lat: number; lon: number } | null> => {
-    const prompt = `
-        Provide the latitude and longitude for the following address: "${address}".
-    `;
-    try {
-        // FIX: Use JSON output with a response schema as per guidelines
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
-                        lat: { type: Type.NUMBER, description: "Latitude" },
-                        lon: { type: Type.NUMBER, description: "Longitude" },
+                        lat: { type: Type.NUMBER, description: "The latitude of the address." },
+                        lon: { type: Type.NUMBER, description: "The longitude of the address." }
                     },
-                    required: ["lat", "lon"],
+                    required: ["lat", "lon"]
                 },
-            },
+            }
         });
-        const result = JSON.parse(response.text);
+        
+        const jsonStr = response.text.trim();
+        const result = JSON.parse(jsonStr);
+        
         if (result && typeof result.lat === 'number' && typeof result.lon === 'number') {
             return result;
         }
         return null;
-    } catch (error) {
-        console.error("Gemini API error (geocodeAddressWithGemini):", error);
-        throw new Error("Failed to geocode address.");
+    } catch (err) {
+        console.error("Gemini geocoding error:", err);
+        throw new Error("Failed to geocode address with AI.");
     }
 };
 
-export const checkForDuplicateReports = async (report: Pick<Report, 'title' | 'description' | 'location' | 'category'>): Promise<Report[]> => {
-    const { data, error } = await supabase.from('reports').select('*').neq('status', ReportStatus.Resolved).limit(50);
-    if (error || !data || data.length === 0) return [];
+export const checkForDuplicateReports = async (potentialReport) => {
+  const { data: reports, error } = await supabase
+    .from('reports')
+    .select('id, title, description, category, location, status')
+    .in('status', [ReportStatus.Pending, ReportStatus.Assigned, ReportStatus.InProgress])
+    .order('created_at', { ascending: false }).limit(50);
     
-    const prompt = `
-      From the provided list of "Existing Reports", identify up to 3 reports that are highly likely to be duplicates of the "New Report". 
-      A duplicate would be about the same issue at the same location.
-      Respond ONLY with a JSON array of the IDs of the duplicate reports, like [101, 204]. If there are no obvious duplicates, respond with an empty array [].
+  if (error) {
+    console.error("Error fetching reports for duplicate check:", error);
+    return [];
+  }
+  if (!reports || reports.length === 0) return [];
+  
+  const reportsContext = reports.map(r => 
+    `{ "id": ${r.id}, "title": "${r.title}", "description": "${r.description}", "category": "${r.category}", "location": "${r.location}" }`
+  ).join(',\n');
+  
+  const prompt = `A user is submitting a new report:\n- Title: "${potentialReport.title}"\n- Description: "${potentialReport.description}"\n- Category: "${potentialReport.category}"\n- Location: "${potentialReport.location}"\n\nHere is a list of existing reports in JSON format:\n[\n${reportsContext}\n]\n\nCompare the new report to the existing ones. Identify up to 3 potential duplicates. A duplicate is a report about the same issue at the same location. Return a JSON array of their IDs. If there are no duplicates, return an empty array []. Do not add any explanation, just the JSON array of IDs.`;
+  
+  try {
+      const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: { responseMimeType: "application/json" },
+      });
 
-      New Report:
-      - Title: "${report.title}"
-      - Description: "${report.description}"
-      - Category: ${report.category}
-      - Location: "${report.location}"
+      let duplicateIds = [];
+      try {
+          const cleanedText = response.text.replace(/```json/g, '').replace(/```/g, '').trim();
+          duplicateIds = JSON.parse(cleanedText);
+      } catch (e) {
+          console.error("Could not parse Gemini duplicate check response:", response.text, e);
+          return [];
+      }
 
-      Existing Reports (JSON array):
-      ${JSON.stringify(data.map(r => ({ id: r.id, title: r.title, description: r.description, category: r.category, location: r.location })))}
-    `;
+      if (Array.isArray(duplicateIds) && duplicateIds.length > 0) {
+          return reports.filter(r => duplicateIds.includes(r.id));
+      }
+      return [];
+  } catch (err) {
+      console.error("Gemini duplicate check error:", err);
+      return [];
+  }
+};
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        const trimmedResponse = response.text.trim().replace(/```json|```/g, '');
-        const duplicateIds = JSON.parse(trimmedResponse);
-        return data.filter(r => duplicateIds.includes(r.id));
-    } catch (e) {
-        console.error("Gemini API error (checkForDuplicateReports):", e);
-        return [];
-    }
+
+// --- Votes ---
+
+export const addVote = async (reportId, userId) => {
+    const { error } = await supabase.from('report_votes').insert([{ report_id: reportId, user_id: userId }]);
+    if (error) throw new Error(error.message);
+};
+
+export const removeVote = async (reportId, userId) => {
+    const { error } = await supabase.from('report_votes').delete().match({ report_id: reportId, user_id: userId });
+    if (error) throw new Error(error.message);
+};
+
+export const getMyVotesForReports = async (reportIds, userId) => {
+    const { data, error } = await supabase
+        .from('report_votes')
+        .select('report_id')
+        .eq('user_id', userId)
+        .in('report_id', reportIds);
+    if (error) throw new Error(error.message);
+    return new Map((data || []).map(vote => [vote.report_id, true]));
+};
+
+
+// --- Other ---
+
+export const getWorkers = async () => {
+    const { data, error } = await supabase.from('workers').select('*');
+    if (error) throw new Error(error.message);
+    return data;
+};
+
+export const addWorker = async (worker) => {
+    const { data, error } = await supabase.from('workers').insert([worker]);
+    if (error) throw new Error(error.message);
+    return data;
+};
+
+export const getUsers = async () => {
+    const { data, error } = await supabase.from('users').select('*');
+    if (error) throw new Error(error.message);
+    return data;
+};
+
+export const getContactMessages = async () => {
+    const { data, error } = await supabase.from('contact_messages').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+};
+
+export const addContactMessage = async (message) => {
+    const sanitizedMessage = {
+        name: sanitizeText(message.name),
+        email: message.email,
+        message: sanitizeText(message.message),
+    };
+    const { data, error } = await supabase.from('contact_messages').insert([sanitizedMessage]);
+    if (error) throw new Error(error.message);
+    return data;
+};
+
+export const getFeedback = async () => {
+    const { data, error } = await supabase.from('feedback').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+};
+
+export const addFeedback = async (feedback) => {
+    const sanitizedFeedback = {
+        name: sanitizeText(feedback.name),
+        email: feedback.email,
+        rating: feedback.rating,
+        comments: sanitizeText(feedback.comments),
+        user_id: feedback.user_id,
+    };
+    const { data, error } = await supabase.from('feedback').insert([sanitizedFeedback]);
+    if (error) throw new Error(error.message);
+    return data;
 };

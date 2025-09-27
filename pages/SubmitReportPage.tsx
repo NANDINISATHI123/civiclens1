@@ -1,32 +1,21 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { User, Report, ReportCategory } from '../types.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as db from '../services/db.ts';
+import { ReportCategory, ReportStatus } from '../types';
+import * as api from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Select } from '../components/ui/Select';
-// FIX: Added .tsx extension to fix module resolution error.
-import { UploadIcon, MapPinIcon, ArrowLeftIcon, CpuIcon } from '../components/Icons.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import DuplicateReportModal from '../components/DuplicateReportModal.tsx';
+import { UploadIcon, MapPinIcon, ArrowLeftIcon, CpuIcon, CameraIcon } from '../components/Icons';
+import DuplicateReportModal from '../components/DuplicateReportModal';
 
-
-interface SubmitReportPageProps {
-  currentUser: User;
-  onReportSubmitted: () => void;
-  onBack: () => void;
-}
-
-const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitReportPageProps) => {
+const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<ReportCategory>(ReportCategory.Other);
+  const [category, setCategory] = useState(ReportCategory.Other);
   const [location, setLocation] = useState('');
+  const [coords, setCoords] = useState<{ lat: number, lon: number } | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -35,11 +24,13 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
   const [error, setError] = useState('');
   const [etr, setEtr] = useState<string | null>(null);
   const [isGettingEtr, setIsGettingEtr] = useState(false);
-
-  const [duplicateReports, setDuplicateReports] = useState<Report[]>([]);
+  
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [duplicateReports, setDuplicateReports] = useState([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -47,9 +38,9 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
       setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-        // Strip the data URL prefix for backend
-        setImageData((reader.result as string).split(',')[1]);
+        const result = reader.result as string;
+        setImagePreview(result);
+        setImageData(result.split(',')[1]); // Strip the data URL prefix
       };
       reader.readAsDataURL(file);
     }
@@ -58,14 +49,17 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
   const handleGetLocation = () => {
     if (navigator.geolocation) {
       setLoading(true);
+      setError('');
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          setLocation(`Lat: ${latitude.toFixed(5)}, Lon: ${longitude.toFixed(5)}`);
+          const locationString = `Lat: ${latitude.toFixed(5)}, Lon: ${longitude.toFixed(5)}`;
+          setLocation(locationString);
+          setCoords({ lat: latitude, lon: longitude });
           setLoading(false);
         },
         (err) => {
-          setError('Could not get location. Please enter it manually.');
+          setError('Could not get location. Please enable location services in your browser/device settings and try again.');
           setLoading(false);
         }
       );
@@ -75,9 +69,7 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
   };
 
   const fetchETR = async () => {
-    if (!title || !description || !category || !location) {
-      return;
-    }
+    if (!title || !description || !category || !location) return;
     setIsGettingEtr(true);
     try {
       const estimatedTime = await api.getETR({ title, description, category, location });
@@ -91,33 +83,34 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
 
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
-        fetchETR();
-    }, 1000); // Debounce ETR fetching
+        if (title && description && category && location) fetchETR();
+    }, 1000);
     return () => clearTimeout(debounceTimer);
   }, [title, description, category, location]);
   
-  const submit = async () => {
-    setLoading(true);
+  const performSubmit = async () => {
     setError('');
-    
+    setLoading(true);
+
     const reportData = {
         title,
         description,
         category,
         location,
-        image_data: imageData || undefined,
-        image_url: imageFile?.name, // For file extension on backend
-        submitted_by: currentUser.id,
+        image_data: imageData,
+        image_url: imageFile?.name,
+        submitted_by_name: currentUser.name,
     };
-
+    
     try {
         await api.submitReport(reportData);
         alert('Report submitted successfully!');
         onReportSubmitted();
     } catch (err: any) {
-        setError(err.message || 'Failed to submit report. It has been saved locally and will be submitted when you are back online.');
-        // Save to IndexedDB for offline support
-        await db.addPendingReport(reportData);
+        // The submission failed, show the error directly to the user.
+        // No offline saving will occur.
+        setError(`Submission failed: ${err.message}`);
+        console.error("Full submission error details:", err);
     } finally {
         setLoading(false);
     }
@@ -125,32 +118,50 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !description || !location || !category) {
-      setError('Please fill out all required fields.');
+    if (!title || !description || !coords || !category || !imageData) {
+      setError('Please fill out all required fields, including location and an image.');
       return;
     }
+    
     setLoading(true);
     setError('');
 
     try {
-        const duplicates = await api.checkForDuplicateReports({ title, description, location, category });
+        const potentialReport = { title, description, category, location };
+        const duplicates = await api.checkForDuplicateReports(potentialReport);
+
         if (duplicates.length > 0) {
             setDuplicateReports(duplicates);
             setIsDuplicateModalOpen(true);
         } else {
-            await submit();
+            await performSubmit();
         }
-    } catch (err) {
-        // If duplicate check fails, proceed with submission anyway but warn user
-        console.error("AI duplicate check failed, submitting directly.", err);
-        await submit();
-    } finally {
-        setLoading(false);
+    } catch (err: any) {
+        console.error("Duplicate check failed, submitting anyway:", err);
+        setError(`An error occurred while checking for duplicates: ${err.message}. Proceeding with submission.`);
+        await performSubmit();
     }
+  };
+
+  const handleConfirmSubmit = async () => {
+    setIsDuplicateModalOpen(false);
+    await performSubmit();
+  };
+
+  const handleCancelSubmit = () => {
+    setIsDuplicateModalOpen(false);
+    setLoading(false);
   };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+       <DuplicateReportModal
+        isOpen={isDuplicateModalOpen}
+        onClose={handleCancelSubmit}
+        onConfirm={handleConfirmSubmit}
+        duplicateReports={duplicateReports}
+      />
+      
       <Button variant="ghost" onClick={onBack} className="mb-4">
         <ArrowLeftIcon className="mr-2 h-4 w-4" />
         Back to Dashboard
@@ -172,42 +183,52 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
               <label htmlFor="description">Description</label>
               <Textarea id="description" placeholder="Provide details about the issue, its size, and specific location." value={description} onChange={e => setDescription(e.target.value)} required />
             </div>
+            
+            <div className="space-y-2">
+                <label htmlFor="category">Category</label>
+                <Select id="category" value={category} onChange={e => setCategory(e.target.value as any)} required>
+                {Object.values(ReportCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </Select>
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                    <label htmlFor="category">Category</label>
-                    <Select id="category" value={category} onChange={e => setCategory(e.target.value as ReportCategory)} required>
-                    {Object.values(ReportCategory).map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                    </Select>
-                </div>
-                 <div className="space-y-2">
-                    <label htmlFor="location">Location</label>
-                    <div className="flex space-x-2">
-                        <Input id="location" placeholder="Address or GPS coordinates" value={location} onChange={e => setLocation(e.target.value)} required />
-                        <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} aria-label="Get my current location">
-                            <MapPinIcon className="h-5 w-5" />
-                        </Button>
-                    </div>
-                </div>
+             <div className="space-y-2">
+                <label>Location (Required)</label>
+                 <Card className="bg-muted/50">
+                    <CardContent className="p-4 text-center">
+                        {location ? (
+                            <p className="font-mono text-sm">{location}</p>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Location not set. Please use the button below.</p>
+                        )}
+                    </CardContent>
+                </Card>
+                <Button type="button" variant="outline" onClick={handleGetLocation} disabled={loading} className="w-full">
+                    <MapPinIcon className="mr-2 h-5 w-5" />
+                    {loading ? 'Getting Location...' : 'Get My Current Location'}
+                </Button>
             </div>
 
             <div className="space-y-2">
-              <label>Image (Optional)</label>
-              <div 
-                className="flex justify-center items-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="h-full w-full object-contain rounded-lg p-2" />
+              <label>Image (Required)</label>
+               {imagePreview ? (
+                  <div className="w-full h-48 border-2 border-dashed rounded-lg p-2">
+                    <img src={imagePreview} alt="Preview" className="h-full w-full object-contain rounded-lg" />
+                  </div>
                 ) : (
-                  <div className="text-center text-muted-foreground">
-                    <UploadIcon className="mx-auto h-8 w-8 mb-2" />
-                    <p>Click to upload an image</p>
-                    <p className="text-xs">PNG, JPG, or WEBP</p>
+                  <div className="flex justify-center items-center w-full h-32 border-2 border-dashed rounded-lg">
+                    <p className="text-muted-foreground">Image preview will appear here</p>
                   </div>
                 )}
-                <input ref={fileInputRef} type="file" accept="image/png, image/jpeg, image/webp" className="hidden" onChange={handleImageChange} />
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()}>
+                    <UploadIcon className="mr-2 h-4 w-4"/> Upload Image
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => cameraInputRef.current?.click()}>
+                    <CameraIcon className="mr-2 h-4 w-4"/> Take Photo
+                </Button>
               </div>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageChange} />
             </div>
             
             {etr && (
@@ -231,13 +252,6 @@ const SubmitReportPage = ({ currentUser, onReportSubmitted, onBack }: SubmitRepo
           </CardFooter>
         </Card>
       </form>
-      
-      <DuplicateReportModal
-        isOpen={isDuplicateModalOpen}
-        onClose={() => setIsDuplicateModalOpen(false)}
-        onConfirm={submit}
-        duplicateReports={duplicateReports}
-      />
     </div>
   );
 };

@@ -1,36 +1,26 @@
 import React, { useEffect, useRef } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Report } from '../types.ts';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card';
-// FIX: Added .tsx extension to fix module resolution error.
-import { AlertTriangleIcon } from './Icons.tsx';
-
-interface DuplicateReportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  duplicateReports: Report[];
-}
+import { AlertTriangleIcon } from './Icons';
 
 const DuplicateReportModal = ({ 
     isOpen, 
     onClose, 
     onConfirm, 
     duplicateReports 
-}: DuplicateReportModalProps) => {
-  const modalRef = useRef<HTMLDivElement>(null);
-  const triggerElementRef = useRef<HTMLElement | null>(null);
+}) => {
+  const modalRef = useRef(null);
+  const triggerElementRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
-      triggerElementRef.current = document.activeElement as HTMLElement;
+      triggerElementRef.current = document.activeElement;
       
       const timer = setTimeout(() => {
         modalRef.current?.focus();
       }, 100);
 
-      const handleKeyDown = (event: KeyboardEvent) => {
+      const handleKeyDown = (event) => {
         if (event.key === 'Escape') {
           onClose();
         }

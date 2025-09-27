@@ -1,61 +1,58 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Page, User, Report, UserRole } from './types.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from './services/api.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as db from './services/db.ts';
+import { Page, UserRole } from './types';
+import * as api from './services/api';
+import Header from './components/Header';
+import Sidebar from './components/Sidebar';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import SignUpPage from './pages/SignUpPage';
+import AdminLoginPage from './pages/AdminLoginPage';
+import CitizenDashboard from './pages/CitizenDashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import SubmitReportPage from './pages/SubmitReportPage';
+import ReportDetailPage from './pages/ReportDetailPage';
+import WorkersPage from './pages/WorkersPage';
+import UsersPage from './pages/UsersPage';
+import ContactPage from './pages/ContactPage';
+import FeedbackPage from './pages/FeedbackPage';
+import LiveMapPage from './pages/LiveMapPage';
 
-// FIX: Added .tsx extension to fix module resolution error.
-import Header from './components/Header.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import Sidebar from './components/Sidebar.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import HomePage from './pages/HomePage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import LoginPage from './pages/LoginPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import SignUpPage from './pages/SignUpPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import AdminLoginPage from './pages/AdminLoginPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import CitizenDashboard from './pages/CitizenDashboard.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import AdminDashboard from './pages/AdminDashboard.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import SubmitReportPage from './pages/SubmitReportPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import ReportDetailPage from './pages/ReportDetailPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import WorkersPage from './pages/WorkersPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import UsersPage from './pages/UsersPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import ContactPage from './pages/ContactPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import FeedbackPage from './pages/FeedbackPage.tsx';
-// FIX: Added .tsx extension to fix module resolution error.
-import LiveMapPage from './pages/LiveMapPage.tsx';
-
-function App() {
-  const [currentPage, setCurrentPage] = useState<Page>(Page.Home);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+const App: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState(Page.Home);
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || (storedTheme === null && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      setTheme('dark');
-    } else {
-      setTheme('light');
+  const navigate = (page: string) => {
+    setCurrentPage(page);
+    window.scrollTo(0, 0);
+    setIsSidebarOpen(false); // Close sidebar on navigation
+  };
+  
+  const checkCurrentUser = useCallback(async () => {
+    try {
+      const user = await api.getCurrentUser();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error("Error checking current user:", error);
+      setCurrentUser(null);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    checkCurrentUser();
+  }, [checkCurrentUser]);
+
+  // Theme management
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
 
@@ -63,127 +60,98 @@ function App() {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
-  const navigate = useCallback((page: Page) => {
-    setCurrentPage(page);
-    setSelectedReport(null); // Clear selected report on navigation
-    setIsSidebarOpen(false); // Close sidebar on navigation
-    window.scrollTo(0, 0); // Scroll to top on page change
-  }, []);
-
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: any) => {
     setCurrentUser(user);
     navigate(Page.Dashboard);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await api.logoutUser();
     setCurrentUser(null);
     navigate(Page.Home);
   };
-  
-  const handleViewReport = (report: Report) => {
+
+  const handleSignUpSuccess = () => {
+    navigate(Page.Login);
+  };
+
+  const viewReport = (report: any) => {
     setSelectedReport(report);
-    setCurrentPage(Page.ViewReport);
+    navigate(Page.ViewReport);
   };
 
-  const syncPendingReports = async () => {
-    if (navigator.onLine) {
-      const pendingReports = await db.getPendingReports();
-      if (pendingReports.length > 0) {
-        console.log(`Syncing ${pendingReports.length} pending reports...`);
-        for (const report of pendingReports) {
-          try {
-            await api.submitReport(report);
-            await db.deletePendingReport(report.timestamp);
-            console.log('Synced and deleted pending report:', report.title);
-          } catch (error) {
-            console.error('Failed to sync report:', report.title, error);
-          }
-        }
-      }
-    }
+  const handleReportSubmitted = () => {
+    navigate(Page.Dashboard);
   };
-
-  useEffect(() => {
-    // Attempt to sync on load
-    syncPendingReports();
-
-    // Listen for online/offline status changes
-    window.addEventListener('online', syncPendingReports);
-    return () => {
-      window.removeEventListener('online', syncPendingReports);
-    };
-  }, []);
-
 
   const renderPage = () => {
-    if (selectedReport && currentPage === Page.ViewReport) {
-      return <ReportDetailPage report={selectedReport} currentUser={currentUser} onBack={() => navigate(Page.Dashboard)} />;
-    }
-
     switch (currentPage) {
       case Page.Home:
         return <HomePage navigate={() => navigate(currentUser ? Page.Dashboard : Page.Login)} />;
       case Page.Login:
         return <LoginPage onLogin={handleLogin} navigateToSignUp={() => navigate(Page.SignUp)} />;
       case Page.SignUp:
-        return <SignUpPage onSignUpSuccess={() => navigate(Page.Login)} navigateToLogin={() => navigate(Page.Login)} />;
+        return <SignUpPage onSignUpSuccess={handleSignUpSuccess} navigateToLogin={() => navigate(Page.Login)} />;
       case Page.AdminLogin:
         return <AdminLoginPage onLogin={handleLogin} />;
       case Page.Dashboard:
-        if (currentUser?.role === UserRole.Admin) {
-          return <AdminDashboard viewReport={handleViewReport} />;
+        if (!currentUser) {
+          navigate(Page.Login);
+          return null;
         }
-        if (currentUser?.role === UserRole.Citizen) {
-          return <CitizenDashboard currentUser={currentUser} viewReport={handleViewReport} navigateToSubmitReport={() => navigate(Page.SubmitReport)} />;
-        }
-        navigate(Page.Login); // If no user, redirect to login
-        return null;
+        return currentUser.role === UserRole.Admin ?
+          <AdminDashboard viewReport={viewReport} /> :
+          <CitizenDashboard currentUser={currentUser} viewReport={viewReport} navigateToSubmitReport={() => navigate(Page.SubmitReport)} />;
       case Page.SubmitReport:
-        return currentUser ? <SubmitReportPage currentUser={currentUser} onReportSubmitted={() => navigate(Page.Dashboard)} onBack={() => navigate(Page.Dashboard)} /> : null;
-      case Page.ViewReport: // Fallback if no report is selected
-        return <p>No report selected. Please go back to the dashboard.</p>;
+        return currentUser ? <SubmitReportPage currentUser={currentUser} onReportSubmitted={handleReportSubmitted} onBack={() => navigate(Page.Dashboard)} /> : <LoginPage onLogin={handleLogin} navigateToSignUp={() => navigate(Page.SignUp)} />;
+      case Page.ViewReport:
+        return selectedReport ? <ReportDetailPage report={selectedReport} currentUser={currentUser} onBack={() => navigate(Page.Dashboard)} /> : <div>Report not found.</div>;
       case Page.Workers:
-        return <WorkersPage />;
+        return currentUser?.role === UserRole.Admin ? <WorkersPage /> : <div>Access Denied</div>;
       case Page.Users:
-        return <UsersPage />;
+        return currentUser?.role === UserRole.Admin ? <UsersPage /> : <div>Access Denied</div>;
       case Page.Contact:
         return <ContactPage onSubmit={() => navigate(Page.Home)} />;
       case Page.Feedback:
         return <FeedbackPage onSubmit={() => navigate(Page.Home)} currentUser={currentUser} />;
       case Page.LiveMap:
-        return <LiveMapPage viewReport={handleViewReport} />;
+        return <LiveMapPage viewReport={viewReport} />;
       default:
         return <HomePage navigate={() => navigate(currentUser ? Page.Dashboard : Page.Login)} />;
     }
   };
 
-  const isFullPageMap = currentPage === Page.LiveMap;
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
+
+  const isMapPage = currentPage === Page.LiveMap;
 
   return (
-    <div className={`min-h-screen ${isFullPageMap ? 'flex flex-col' : ''}`}>
-      <Header 
-        currentUser={currentUser} 
-        onLogout={handleLogout} 
-        navigate={navigate} 
+    <div className={`min-h-screen flex flex-col ${isMapPage ? 'h-screen overflow-hidden' : ''}`}>
+      <Header
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        navigate={navigate}
         theme={theme}
         toggleTheme={toggleTheme}
-        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        onMenuClick={() => setIsSidebarOpen(o => !o)}
       />
-      <div className={`flex flex-1 pt-16 ${isFullPageMap ? 'overflow-hidden' : ''}`}>
-        <Sidebar 
-          currentUser={currentUser} 
+      <div className={`flex flex-1 ${!isMapPage ? 'pt-16' : ''}`}>
+        <Sidebar
+          currentUser={currentUser}
           navigate={navigate}
           currentPage={currentPage}
           onLogout={handleLogout}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
         />
-        <main className={`flex-1 transition-all duration-300 ease-in-out ${isFullPageMap ? '' : 'p-4 sm:p-6 md:p-8'} lg:ml-64`}>
-          {renderPage()}
+        <main className={`flex-1 transition-all duration-300 ease-in-out ${!isMapPage ? 'lg:ml-64 p-4 sm:p-6 md:p-8' : ''}`}>
+          {isMapPage ? renderPage() : <div className="flex justify-center w-full">{renderPage()}</div>}
         </main>
       </div>
     </div>
   );
-}
+};
 
 export default App;

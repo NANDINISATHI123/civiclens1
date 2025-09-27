@@ -1,18 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { Button } from './ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/Card';
-// FIX: Added .tsx extension to fix module resolution error.
-import { SparklesIcon } from './Icons.tsx';
+import { SparklesIcon } from './Icons';
 
-interface AIAnalysisModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  analysis: string | null;
-  isLoading: boolean;
-  error: string | null;
-}
-
-const renderFormattedText = (text: string) => {
+const renderFormattedText = (text) => {
     const lines = text.split('\n').filter(line => line.trim() !== '');
     return lines.map((line, index) => {
         if (line.startsWith('**') && line.endsWith('**')) {
@@ -34,19 +25,19 @@ const AIAnalysisModal = ({
     analysis, 
     isLoading, 
     error 
-}: AIAnalysisModalProps) => {
-  const modalRef = useRef<HTMLDivElement>(null);
-  const triggerElementRef = useRef<HTMLElement | null>(null);
+}) => {
+  const modalRef = useRef(null);
+  const triggerElementRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
-      triggerElementRef.current = document.activeElement as HTMLElement;
+      triggerElementRef.current = document.activeElement;
       
       const timer = setTimeout(() => {
         modalRef.current?.focus();
       }, 100);
 
-      const handleKeyDown = (event: KeyboardEvent) => {
+      const handleKeyDown = (event) => {
         if (event.key === 'Escape') {
           onClose();
         }

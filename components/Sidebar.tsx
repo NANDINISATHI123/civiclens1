@@ -1,28 +1,9 @@
 import React from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Page, User, UserRole } from '../types.ts';
+import { Page, UserRole } from '../types';
 import { Button } from './ui/Button';
-// FIX: Added .tsx extension to fix module resolution error.
-import { HomeIcon, LayoutDashboardIcon, UsersIcon, Users2Icon, MailIcon, MessageSquareIcon, LogOutIcon, MapIcon } from './Icons.tsx';
+import { HomeIcon, LayoutDashboardIcon, UsersIcon, Users2Icon, MailIcon, MessageSquareIcon, LogOutIcon, MapIcon } from './Icons';
 
-interface SidebarProps {
-  currentUser: User | null;
-  navigate: (page: Page) => void;
-  currentPage: Page;
-  onLogout: () => void;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-interface NavItemProps {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  page: Page;
-  currentPage: Page;
-  onClick: (page: Page) => void;
-}
-
-const NavItem = ({ icon: Icon, label, page, currentPage, onClick }: NavItemProps) => {
+const NavItem = ({ icon: Icon, label, page, currentPage, onClick }) => {
   const isActive = currentPage === page;
   return (
     <button
@@ -37,7 +18,7 @@ const NavItem = ({ icon: Icon, label, page, currentPage, onClick }: NavItemProps
   );
 };
 
-const Sidebar = ({ currentUser, navigate, currentPage, onLogout, isOpen, onClose }: SidebarProps) => {
+const Sidebar = ({ currentUser, navigate, currentPage, onLogout, isOpen, onClose }) => {
   
   const commonLinks = [
     { page: Page.Home, label: 'Homepage', icon: HomeIcon },

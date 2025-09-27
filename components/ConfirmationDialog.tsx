@@ -2,16 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { Button } from './ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from './ui/Card';
 
-interface ConfirmationDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  title: string;
-  description: string;
-  confirmText?: string;
-  cancelText?: string;
-}
-
 const ConfirmationDialog = ({ 
     isOpen, 
     onClose, 
@@ -20,19 +10,19 @@ const ConfirmationDialog = ({
     description, 
     confirmText = 'Confirm', 
     cancelText = 'Cancel' 
-}: ConfirmationDialogProps) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerElementRef = useRef<HTMLElement | null>(null);
+}) => {
+  const dialogRef = useRef(null);
+  const triggerElementRef = useRef(null);
   
   useEffect(() => {
     if (isOpen) {
-      triggerElementRef.current = document.activeElement as HTMLElement;
+      triggerElementRef.current = document.activeElement;
       
       const timer = setTimeout(() => {
         dialogRef.current?.focus();
       }, 100);
 
-      const handleKeyDown = (event: KeyboardEvent) => {
+      const handleKeyDown = (event) => {
         if (event.key === 'Escape') {
           onClose();
         }

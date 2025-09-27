@@ -1,20 +1,16 @@
 import React from 'react';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-// FIX: Added .tsx extension to fix module resolution error.
-import { FilePlusIcon, MapPinIcon, CpuIcon, MessagesSquareIcon, ArrowRightIcon } from '../components/Icons.tsx';
+import { FilePlusIcon, MapPinIcon, CpuIcon, MessagesSquareIcon, ArrowRightIcon } from '../components/Icons';
 
-interface HomePageProps {
-  navigate: () => void;
-}
+type FeatureCardProps = {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+};
 
-interface FeatureCardProps {
-    icon: React.ComponentType<{ className?: string }>;
-    title: string;
-    description: string;
-}
-
-const FeatureCard: React.FC<FeatureCardProps> = ({ icon: Icon, title, description }) => (
+const FeatureCard: React.FC<FeatureCardProps> = ({ icon: Icon, title, description }) => {
+    return (
     <Card className="hover:shadow-lg transition-shadow duration-300">
         <CardHeader className="flex flex-row items-center space-x-4">
             <div className="bg-primary/10 p-3 rounded-full"><Icon className="h-6 w-6 text-primary" /></div>
@@ -24,9 +20,10 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon: Icon, title, descriptio
             <p className="text-muted-foreground">{description}</p>
         </CardContent>
     </Card>
-);
+    );
+}
 
-const HomePage = ({ navigate }: HomePageProps) => {
+const HomePage = ({ navigate }: { navigate: () => void }) => {
   const features = [
     {
       icon: FilePlusIcon,
@@ -51,9 +48,9 @@ const HomePage = ({ navigate }: HomePageProps) => {
   ];
 
   return (
-    <div>
+    <div className="w-full max-w-7xl mx-auto">
       <section className="text-center py-20">
-        <h1 className="text-5xl md:text-6xl font-extold tracking-tight text-primary">
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight text-primary">
           Report, Track, Resolve
         </h1>
         <p className="mt-4 max-w-2xl mx-auto text-lg text-muted-foreground">

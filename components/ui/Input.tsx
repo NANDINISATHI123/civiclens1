@@ -1,17 +1,6 @@
 import React from 'react';
 
-// Simplified, explicit props for the no-build environment
-export interface InputProps {
-  className?: string;
-  type?: string;
-  value?: string | number;
-  onChange?: React.ChangeEventHandler<HTMLInputElement>;
-  placeholder?: string;
-  required?: boolean;
-  disabled?: boolean;
-  id?: string;
-}
-
+// FIX: Add explicit prop types and make non-essential props optional.
 const Input = ({
   className,
   type,
@@ -21,7 +10,16 @@ const Input = ({
   required,
   disabled,
   id,
-}: InputProps) => {
+}: {
+  className?: string;
+  type?: string;
+  value: any;
+  onChange: React.ChangeEventHandler<HTMLInputElement>;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  id?: string;
+}) => {
     return (
       <input
         type={type}

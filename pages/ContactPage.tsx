@@ -1,23 +1,18 @@
 import React, { useState } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
+import * as api from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/Card';
 
-interface ContactPageProps {
-  onSubmit: () => void;
-}
-
-const ContactPage = ({ onSubmit }: ContactPageProps) => {
+const ContactPage = ({ onSubmit }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     await api.addContactMessage({ name, email, message });
@@ -27,23 +22,25 @@ const ContactPage = ({ onSubmit }: ContactPageProps) => {
 
   if (submitted) {
     return (
-      <div className="max-w-2xl mx-auto text-center">
-        <Card>
-          <CardHeader>
-            <CardTitle>Thank You!</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>Your message has been sent. We will get back to you as soon as possible.</p>
-            <Button onClick={onSubmit} className="mt-4">Back to Home</Button>
-          </CardContent>
-        </Card>
+      <div className="flex-grow flex items-center justify-center">
+        <div className="w-full max-w-2xl text-center">
+            <Card>
+            <CardHeader>
+                <CardTitle>Thank You!</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p>Your message has been sent. We will get back to you as soon as possible.</p>
+                <Button onClick={onSubmit} className="mt-4">Back to Home</Button>
+            </CardContent>
+            </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit}>
+    <div className="flex-grow flex items-center justify-center">
+      <form onSubmit={handleSubmit} className="w-full max-w-2xl">
         <Card>
           <CardHeader>
             <CardTitle>Contact Us</CardTitle>

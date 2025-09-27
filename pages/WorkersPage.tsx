@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Worker } from '../types.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
+import * as api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
 const WorkersPage = () => {
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   
@@ -27,7 +24,7 @@ const WorkersPage = () => {
     fetchWorkers();
   }, []);
 
-  const handleAddWorker = async (e: React.FormEvent) => {
+  const handleAddWorker = async (e) => {
     e.preventDefault();
     await api.addWorker({ name, contact, role });
     setName('');
@@ -38,7 +35,7 @@ const WorkersPage = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-7xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">Manage Workers</h1>
             <Button onClick={() => setShowAddForm(!showAddForm)}>{showAddForm ? 'Cancel' : 'Add New Worker'}</Button>
@@ -79,7 +76,6 @@ const WorkersPage = () => {
                     {/* Mobile Card View */}
                     <div className="md:hidden space-y-4">
                         {workers.map(worker => (
-                            // Fix: Moved key to a wrapping div to solve prop-type error on Card component.
                             <div key={worker.id}>
                             <Card className="w-full">
                                 <CardContent className="p-4">

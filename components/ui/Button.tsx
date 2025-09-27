@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 const variants = {
@@ -17,18 +16,17 @@ const sizes = {
   icon: 'h-11 w-11',
 };
 
-// Simplified, explicit props for the no-build environment
-export interface ButtonProps {
-  children?: React.ReactNode; // Corrected from React.Node
+type ButtonProps = {
+  children?: React.ReactNode;
   className?: string;
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   variant?: keyof typeof variants;
   size?: keyof typeof sizes;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
   disabled?: boolean;
   type?: 'button' | 'submit' | 'reset';
-}
+};
 
-const Button = ({
+const Button: React.FC<ButtonProps> = ({
   children,
   className,
   variant = 'default',
@@ -36,7 +34,7 @@ const Button = ({
   onClick,
   disabled,
   type,
-}: ButtonProps) => {
+}) => {
   const baseClasses = 'inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:scale-[1.02] select-none';
   const finalClassName = `${baseClasses} ${variants[variant]} ${sizes[size]} ${className || ''}`;
 

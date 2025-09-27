@@ -1,68 +1,80 @@
 import React, { useEffect, useRef } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Report } from '../types.ts';
 
-declare const L: any; // Use Leaflet's global object
+declare const L: any;
 
-interface MapComponentProps {
-    reports: (Report & { lat: number; lon: number })[];
-    viewReport: (report: Report) => void;
-    statusColors: { [key: string]: string };
-    userLocation: { lat: number; lon: number } | null;
-}
-
-const MapComponent: React.FC<MapComponentProps> = ({ reports, viewReport, statusColors, userLocation }) => {
+const MapComponent = ({ reports, viewReport, statusColors, userLocation }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<any>(null); // To hold the map instance
-    const markersRef = useRef<any>(null); // To hold the feature group layer
+    const mapRef = useRef<any>(null);
+    const markersRef = useRef<any>(null);
 
+    const getPinSVG = (color: string) => `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28">
+            <path fill="${color}" stroke="#fff" stroke-width="1.5" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+            <circle cx="12" cy="9" r="2.5" fill="#fff"/>
+        </svg>
+    `;
+
+    // Effect for map initialization and cleanup
     useEffect(() => {
-        if (!mapContainerRef.current || typeof L === 'undefined') {
-            return;
-        }
+        if (!mapContainerRef.current || typeof L === 'undefined') return;
 
-        // Initialize map only once
-        if (!mapRef.current) {
-            // Initialize with a default view; it will be adjusted by fitBounds later.
-            const map = L.map(mapContainerRef.current).setView([37.7749, -122.4194], 12); 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(map);
-            mapRef.current = map;
-            markersRef.current = L.featureGroup().addTo(map);
-        }
+        // Prevent re-initialization
+        if (mapRef.current) return;
+
+        const map = L.map(mapContainerRef.current).setView([20.5937, 78.9629], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        mapRef.current = map;
+
+        const markerClusterGroup = L.markerClusterGroup();
+        map.addLayer(markerClusterGroup);
+        markersRef.current = markerClusterGroup;
+
+        // Cleanup function to run when the component is unmounted
+        return () => {
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+            }
+        };
+    }, []); // Empty dependency array ensures this runs only once on mount
+
+    // Effect for updating markers when data changes
+    useEffect(() => {
+        if (!mapRef.current || !markersRef.current) return;
 
         const markers = markersRef.current;
-        
-        // Clear existing markers
         markers.clearLayers();
-        
-        // Add user location marker
+
+        const allMarkersGroup = L.featureGroup();
+
         if (userLocation) {
-             const userIcon = L.divIcon({
+            const userIcon = L.divIcon({
                 html: `<div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg animate-pulse"></div>`,
-                className: '', // No extra class needed, Tailwind is in the HTML
+                className: '',
                 iconSize: [16, 16],
             });
             const userMarker = L.marker([userLocation.lat, userLocation.lon], { icon: userIcon, zIndexOffset: 1000 })
                 .bindPopup("Your Location");
-            markers.addLayer(userMarker);
+            allMarkersGroup.addLayer(userMarker);
         }
 
         reports.forEach(report => {
-            const iconHtml = `<div style="background-color: ${statusColors[report.status]};" class="w-3 h-3 rounded-full ring-2 ring-white"></div>`;
+            if (!report.lat || !report.lon) return;
+
+            const pinColor = statusColors[report.status] || '#808080';
             const customIcon = L.divIcon({
-                html: iconHtml,
-                className: 'custom-map-icon',
-                iconSize: [12, 12],
+                html: getPinSVG(pinColor),
+                className: '',
+                iconAnchor: [14, 28],
+                popupAnchor: [0, -28]
             });
-            
-            // Create the popup content with a button
+
             const popupContent = document.createElement('div');
             popupContent.innerHTML = `
                 <div class="text-sm space-y-1">
                     <p class="font-bold">${report.title}</p>
-                    <p class="text-xs text-gray-500">Category: ${report.category}</p>
                     <p class="text-xs text-gray-500">Status: ${report.status}</p>
                     <p class="text-xs text-gray-500 font-semibold">${report.vote_count || 0} Confirmation(s)</p>
                 </div>
@@ -76,17 +88,17 @@ const MapComponent: React.FC<MapComponentProps> = ({ reports, viewReport, status
             const marker = L.marker([report.lat, report.lon], { icon: customIcon })
                 .bindPopup(popupContent);
 
-            markers.addLayer(marker);
+            allMarkersGroup.addLayer(marker);
         });
-        
-        // Dynamically adjust map view to fit all markers if any exist
-        if (markers.getLayers().length > 0) {
-            const bounds = markers.getBounds();
+
+        markers.addLayer(allMarkersGroup);
+
+        if (allMarkersGroup.getLayers().length > 0) {
+            const bounds = allMarkersGroup.getBounds();
             if (bounds.isValid()) {
-                mapRef.current.fitBounds(bounds, { padding: [50, 50] }); // Add padding
+                mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
             }
         }
-
     }, [reports, viewReport, statusColors, userLocation]);
 
     return <div ref={mapContainerRef} className="w-full h-full" />;

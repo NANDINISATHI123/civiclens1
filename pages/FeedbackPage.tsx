@@ -1,19 +1,10 @@
 import React, { useState } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import { User } from '../types.ts';
+import * as api from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/Card';
-// FIX: Added .tsx extension to fix module resolution error.
-import { FrownIcon, MehIcon, SmileIcon, LaughIcon, SmilePlusIcon } from '../components/Icons.tsx';
-
-interface FeedbackPageProps {
-  onSubmit: () => void;
-  currentUser: User | null;
-}
+import { FrownIcon, MehIcon, SmileIcon, LaughIcon, SmilePlusIcon } from '../components/Icons';
 
 const ratingOptions = [
     { rating: 1, icon: FrownIcon, label: 'Very Bad' },
@@ -23,7 +14,7 @@ const ratingOptions = [
     { rating: 5, icon: LaughIcon, label: 'Excellent' },
 ];
 
-const FeedbackPage = ({ onSubmit, currentUser }: FeedbackPageProps) => {
+const FeedbackPage = ({ onSubmit, currentUser }) => {
   const [name, setName] = useState(currentUser?.name || '');
   const [email, setEmail] = useState(currentUser?.email || '');
   const [rating, setRating] = useState(0);
@@ -31,7 +22,7 @@ const FeedbackPage = ({ onSubmit, currentUser }: FeedbackPageProps) => {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (rating === 0) {
         alert('Please select a rating.');
@@ -51,23 +42,25 @@ const FeedbackPage = ({ onSubmit, currentUser }: FeedbackPageProps) => {
 
   if (submitted) {
     return (
-      <div className="max-w-2xl mx-auto text-center">
-        <Card>
-          <CardHeader>
-            <CardTitle>Thank You!</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>Your feedback is valuable to us and helps us improve our service.</p>
-            <Button onClick={onSubmit} className="mt-4">Back to Safety</Button>
-          </CardContent>
-        </Card>
+      <div className="flex-grow flex items-center justify-center">
+        <div className="w-full max-w-2xl text-center">
+            <Card>
+            <CardHeader>
+                <CardTitle>Thank You!</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p>Your feedback is valuable to us and helps us improve our service.</p>
+                <Button onClick={onSubmit} className="mt-4">Back to Safety</Button>
+            </CardContent>
+            </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit}>
+    <div className="flex-grow flex items-center justify-center">
+      <form onSubmit={handleSubmit} className="w-full max-w-2xl">
         <Card>
           <CardHeader>
             <CardTitle>Give Us Your Feedback</CardTitle>

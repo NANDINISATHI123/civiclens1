@@ -1,49 +1,54 @@
 import React from 'react';
 
-// Simplified props to avoid complex type inheritance
-// FIX: Added optional 'id' prop to BaseProps to allow for accessibility attributes.
-interface BaseProps {
-    id?: string;
-    className?: string;
-    children?: React.ReactNode;
-    onClick?: (event: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
-}
+// FIX: Extend CardProps to support all standard div attributes for better accessibility and event handling.
+type CardProps = React.HTMLAttributes<HTMLDivElement> & {
+  className?: string;
+  children?: React.ReactNode;
+};
 
-const Card = ({ className, children, onClick }: BaseProps) => (
+const Card: React.FC<CardProps> = ({ className, children, ...props }) => (
   <div
     className={`rounded-xl border bg-card text-card-foreground shadow ${className || ''}`}
-    onClick={onClick}
+    {...props}
   >
     {children}
   </div>
 );
 
-const CardHeader = ({ className, children }: BaseProps) => (
+type CardSubComponentProps = {
+  className?: string;
+  children?: React.ReactNode;
+};
+
+const CardHeader: React.FC<CardSubComponentProps> = ({ className, children }) => (
   <div className={`flex flex-col space-y-1.5 p-6 ${className || ''}`}>
     {children}
   </div>
 );
 
-// FIX: Modified CardTitle to accept and apply the 'id' prop for accessibility.
-const CardTitle = ({ className, children, id }: BaseProps) => (
+type CardTitleProps = CardSubComponentProps & {
+    id?: string;
+}
+
+const CardTitle: React.FC<CardTitleProps> = ({ className, children, id }) => (
   <h3 id={id} className={`text-2xl font-semibold leading-none tracking-tight ${className || ''}`}>
     {children}
   </h3>
 );
 
-const CardDescription = ({ className, children }: BaseProps) => (
+const CardDescription: React.FC<CardSubComponentProps> = ({ className, children }) => (
   <p className={`text-sm text-muted-foreground ${className || ''}`}>
     {children}
   </p>
 );
 
-const CardContent = ({ className, children }: BaseProps) => (
+const CardContent: React.FC<CardSubComponentProps> = ({ className, children }) => (
   <div className={`p-6 pt-0 ${className || ''}`}>
     {children}
   </div>
 );
 
-const CardFooter = ({ className, children }: BaseProps) => (
+const CardFooter: React.FC<CardSubComponentProps> = ({ className, children }) => (
   <div className={`flex items-center p-6 pt-0 ${className || ''}`}>
     {children}
   </div>

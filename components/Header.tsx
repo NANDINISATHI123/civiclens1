@@ -1,20 +1,9 @@
 import React from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { User, Page } from '../types.ts';
+import { Page } from '../types';
 import { Button } from './ui/Button';
-// FIX: Added .tsx extension to fix module resolution error.
-import { CameraIcon, SunIcon, MoonIcon, MenuIcon } from './Icons.tsx';
+import { CameraIcon, SunIcon, MoonIcon, MenuIcon } from './Icons';
 
-interface HeaderProps {
-  currentUser: User | null;
-  onLogout: () => void;
-  navigate: (page: Page) => void;
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
-  onMenuClick: () => void;
-}
-
-const Header = ({ currentUser, onLogout, navigate, theme, toggleTheme, onMenuClick }: HeaderProps) => {
+const Header = ({ currentUser, onLogout, navigate, theme, toggleTheme, onMenuClick }) => {
   return (
     <header className="fixed top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center">

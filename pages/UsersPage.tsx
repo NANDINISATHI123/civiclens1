@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { User } from '../types.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
+import * as api from '../services/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 
 const UsersPage = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,7 +17,7 @@ const UsersPage = () => {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-7xl mx-auto space-y-6">
       <h1 className="text-3xl font-bold">Manage Users</h1>
       <Card>
         <CardHeader>
@@ -38,7 +35,6 @@ const UsersPage = () => {
                     {/* Mobile Card View */}
                     <div className="md:hidden space-y-4">
                         {users.map(user => (
-                            // Fix: Moved key to a wrapping div to solve prop-type error on Card component.
                             <div key={user.id}>
                             <Card className="w-full">
                                 <CardContent className="p-4">

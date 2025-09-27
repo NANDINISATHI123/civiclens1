@@ -1,22 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// FIX: Added .ts extension to fix module resolution error.
-import { Report, ReportStatus } from '../types.ts';
-// FIX: Added .ts extension to fix module resolution error.
-import * as api from '../services/api.ts';
-// FIX: Added .tsx extension to fix module resolution error.
-import MapComponent from '../components/MapComponent.tsx';
+import { ReportStatus } from '../types';
+import * as api from '../services/api';
+import MapComponent from '../components/MapComponent';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-// FIX: Added .tsx extension to fix module resolution error.
-import { MenuIcon, MapPinIcon } from '../components/Icons.tsx';
+import { MenuIcon, MapPinIcon } from '../components/Icons';
 import { supabase } from '../supabase/client';
 import { Input } from '../components/ui/Input';
 
-interface LiveMapPageProps {
-    viewReport: (report: Report) => void;
-}
-
-const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
     const R = 6371; // Radius of the earth in km
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -28,13 +20,13 @@ const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon
     return R * c; // Distance in km
 };
 
-const parseLocation = (location: string): { lat: number, lon: number } | null => {
+const parseLocation = (location: string | null) => {
     if (!location) return null;
+    // This function now only parses the location string, making it resilient to DB schema changes.
     const latLonMatch = location.match(/Lat: ([-.\d]+), Lon: ([-.\d]+)/);
     if (latLonMatch && latLonMatch[1] && latLonMatch[2]) {
         const lat = parseFloat(latLonMatch[1]);
         const lon = parseFloat(latLonMatch[2]);
-        // Basic validation for coordinates
         if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
            return { lat, lon };
         }
@@ -42,7 +34,7 @@ const parseLocation = (location: string): { lat: number, lon: number } | null =>
     return null;
 };
 
-const statusColors: { [key: string]: string } = {
+const statusColors = {
     [ReportStatus.Pending]: '#FBBF24', [ReportStatus.Assigned]: '#3B82F6',
     [ReportStatus.InProgress]: '#8B5CF6', [ReportStatus.Resolved]: '#10B981',
 };
@@ -54,25 +46,13 @@ const FilterPanel = ({
     filterLocation, setFilterLocation,
     handleGetMyLocation, isFetchingLocation,
     locationError,
-}: { 
-    statusFilter: string, 
-    setStatusFilter: (status: string) => void, 
-    reports: (Report & { lat: number, lon: number })[],
-    proximityFilter: number | null,
-    setProximityFilter: (radius: number | null) => void,
-    filterLocation: { label: string } | null,
-    setFilterLocation: (location: { lat: number, lon: number, label: string } | null) => void,
-    handleGetMyLocation: () => void,
-    isFetchingLocation: boolean,
-    locationError: string | null
 }) => {
     const allStatuses = Object.values(ReportStatus);
     const proximityOptions = [1, 5, 10]; // km
     
-    // State for manual search within the panel
     const [locationSearch, setLocationSearch] = useState('');
     const [isGeocoding, setIsGeocoding] = useState(false);
-    const [searchError, setSearchError] = useState<string | null>(null);
+    const [searchError, setSearchError] = useState(null);
 
     const handleSearch = async () => {
         if (!locationSearch) return;
@@ -85,7 +65,7 @@ const FilterPanel = ({
             } else {
                 setSearchError("Location not found.");
             }
-        } catch (err: any) {
+        } catch (err) {
             setSearchError(err.message);
         } finally {
             setIsGeocoding(false);
@@ -139,7 +119,6 @@ const FilterPanel = ({
                          <div className="flex flex-wrap gap-2 pt-2">
                             <Button size="sm" variant={!proximityFilter ? 'default' : 'outline'} onClick={() => setProximityFilter(null)}>All</Button>
                             {proximityOptions.map(dist => (
-                                // FIX: Wrap Button in React.Fragment to handle the 'key' prop, which is not a valid prop on the custom Button component.
                                 <React.Fragment key={dist}>
                                     <Button size="sm" variant={proximityFilter === dist ? 'default' : 'outline'} onClick={() => setProximityFilter(dist)}>
                                         {`< ${dist} km`}
@@ -155,17 +134,15 @@ const FilterPanel = ({
 };
 
 
-const LiveMapPage: React.FC<LiveMapPageProps> = ({ viewReport }) => {
-    const [reports, setReports] = useState<(Report & { lat: number, lon: number })[]>([]);
+const LiveMapPage = ({ viewReport }) => {
+    const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('All');
-    const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
-    const [locationError, setLocationError] = useState<string | null>(null);
+    const [userLocation, setUserLocation] = useState(null);
+    const [locationError, setLocationError] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-
-    // State for proximity filtering
-    const [proximityFilter, setProximityFilter] = useState<number | null>(null); // in km
-    const [filterLocation, setFilterLocation] = useState<{ lat: number; lon: number; label: string } | null>(null);
+    const [proximityFilter, setProximityFilter] = useState(null);
+    const [filterLocation, setFilterLocation] = useState(null);
     const [isFetchingLocation, setIsFetchingLocation] = useState(false);
     
     const handleGetMyLocation = () => {
@@ -190,19 +167,20 @@ const LiveMapPage: React.FC<LiveMapPageProps> = ({ viewReport }) => {
         );
     };
 
-    useEffect(() => {
-        handleGetMyLocation(); // Get location on initial load
+    const fetchAndProcessReports = async () => {
+        const rawReports = await api.getReports();
+        const reportsWithCoords = rawReports
+            .map(report => ({ ...report, ...parseLocation(report.location) }))
+            .filter((report) => report.lat != null && report.lon != null);
+        setReports(reportsWithCoords);
+    };
 
-        const fetchAndProcessReports = async () => {
-            setLoading(true);
-            const rawReports = await api.getReports();
-            const reportsWithCoords = rawReports
-                .map(report => ({ ...report, ...parseLocation(report.location) }))
-                .filter((report): report is Report & { lat: number, lon: number } => report.lat !== undefined && report.lon !== undefined);
-            setReports(reportsWithCoords);
-            setLoading(false);
-        };
-        fetchAndProcessReports();
+
+    useEffect(() => {
+        handleGetMyLocation(); 
+        
+        setLoading(true);
+        fetchAndProcessReports().finally(() => setLoading(false));
 
         const channel = supabase
             .channel('live-map-reports')
@@ -210,31 +188,39 @@ const LiveMapPage: React.FC<LiveMapPageProps> = ({ viewReport }) => {
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'reports' },
                 (payload) => {
-                    const eventType = payload.eventType;
-                    const record = payload.new as Report;
-                    const reportWithCoords = { ...record, ...parseLocation(record.location) };
-                    
-                    if (eventType === 'INSERT' && reportWithCoords.lat !== undefined) {
-                        setReports(currentReports => [
-                            ...currentReports,
-                            reportWithCoords as Report & { lat: number, lon: number }
-                        ]);
-                    } else if (eventType === 'UPDATE') {
-                        setReports(currentReports => {
-                            const reportExists = currentReports.some(r => r.id === record.id);
-                            // If location is now valid, add or update it
-                            if (reportWithCoords.lat !== undefined) {
-                                if (reportExists) {
-                                    return currentReports.map(r => r.id === record.id ? (reportWithCoords as Report & { lat: number; lon: number }) : r);
-                                } else {
-                                     return [...currentReports, reportWithCoords as Report & { lat: number; lon: number }];
-                                }
-                            } else {
-                                // If location is now invalid, remove it
-                                return currentReports.filter(r => r.id !== record.id);
+                    setReports(currentReports => {
+                        const { eventType, new: newRecord, old: oldRecord } = payload;
+
+                        if (eventType === 'INSERT') {
+                            const reportWithCoords = { ...newRecord, ...parseLocation(newRecord.location) };
+                            if (reportWithCoords.lat != null && reportWithCoords.lon != null) {
+                                return [reportWithCoords, ...currentReports];
                             }
-                        });
-                    }
+                        } else if (eventType === 'UPDATE') {
+                            const reportWithCoords = { ...newRecord, ...parseLocation(newRecord.location) };
+                            const hasCoords = reportWithCoords.lat != null && reportWithCoords.lon != null;
+                            // FIX: Cast to 'any' to resolve TypeScript error about missing 'id' property.
+                            const index = currentReports.findIndex(r => r.id === (reportWithCoords as any).id);
+
+                            if (index !== -1) { // Report is already in our map list
+                                if (hasCoords) {
+                                    const updatedReports = [...currentReports];
+                                    updatedReports[index] = reportWithCoords;
+                                    return updatedReports;
+                                } else {
+                                    // FIX: Cast to 'any' to resolve TypeScript error about missing 'id' property.
+                                    return currentReports.filter(r => r.id !== (reportWithCoords as any).id);
+                                }
+                            } else if (hasCoords) { // Report was not in list, but now has coords
+                                return [reportWithCoords, ...currentReports];
+                            }
+                        } else if (eventType === 'DELETE') {
+                            if (oldRecord && oldRecord.id) {
+                                return currentReports.filter(report => report.id !== (oldRecord as any).id);
+                            }
+                        }
+                        return currentReports;
+                    });
                 }
             )
             .subscribe();
@@ -276,7 +262,6 @@ const LiveMapPage: React.FC<LiveMapPageProps> = ({ viewReport }) => {
 
     return (
         <div className="h-full flex flex-col lg:flex-row">
-            {/* Desktop Sidebar */}
             <div className="hidden lg:block lg:w-80 xl:w-96 p-4 space-y-4 overflow-y-auto">
                  <div>
                     <h1 className="text-2xl font-bold">Live Issues Map</h1>
@@ -285,7 +270,6 @@ const LiveMapPage: React.FC<LiveMapPageProps> = ({ viewReport }) => {
                 <FilterPanel {...filterPanelProps} />
             </div>
 
-            {/* Mobile Filter Drawer */}
             <div className={`fixed top-16 left-0 h-[calc(100vh-4rem)] w-80 bg-background p-4 z-40 transform transition-transform duration-300 ease-in-out lg:hidden ${isFilterPanelOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                  <FilterPanel {...filterPanelProps} />
             </div>
